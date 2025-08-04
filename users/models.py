@@ -1,41 +1,36 @@
-# users/models.py
-
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from users.utils import normalize_phone_number  # Add this at the top
 
 class CustomUserManager(BaseUserManager):
-    def create_user(self, identifier, name, password=None):
-        if not identifier:
-            raise ValueError("Users must provide an email or phone number")
+    def create_user(self, email=None, phone=None, password=None, **extra_fields):
+        if not email and not phone:
+            raise ValueError("Users must have either an email or a phone number.")
+        
+        if phone:
+            phone = normalize_phone_number(phone)
+        if email:
+            email = self.normalize_email(email)
 
-        if '@' in identifier:
-            user = self.model(email=identifier, name=name)
-        else:
-            user = self.model(phone=identifier, name=name)
-
+        user = self.model(email=email, phone=phone, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
-
-    def create_superuser(self, identifier, name, password):
-        user = self.create_user(identifier, name, password)
-        user.is_superuser = True
-        user.is_staff = True
-        user.save(using=self._db)
-        return user
+    
+    def create_superuser(self, email=None, phone=None, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        return self.create_user(email=email, phone=phone, password=password, **extra_fields)
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True, null=True, blank=True)
     phone = models.CharField(max_length=15, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
 
-    is_active = models.BooleanField(default=True)
-    is_staff = models.BooleanField(default=False)
-
     objects = CustomUserManager()
 
-    USERNAME_FIELD = 'email'  # we'll accept both but email is used internally
-    REQUIRED_FIELDS = ['name']
+    USERNAME_FIELD = 'email'  # Keep this if using email login
+    REQUIRED_FIELDS = ['name']  # Add 'phone' here if you want it required
 
     def __str__(self):
-        return self.email if self.email else self.phone
+        return self.email or self.phone
