@@ -4,6 +4,8 @@ from users.auth.validators import validate_email_or_phone, validate_password_str
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from users.utils import normalize_phone_number
+from users.utils import send_otp_via_email_or_sms
+import random
 
 
 
@@ -36,11 +38,22 @@ class RegisterSerializer(serializers.Serializer):
         except ValidationError:
             email = None
             phone = contact
+        
+        # for OTP sending in terminal
+        otp = str(random.randint(100000, 999999))
 
-        user = CustomUser.objects.create_user(
-            email=email,
-            phone=phone,
-            name=name,
-            password=password
-        )
+        user = CustomUser.objects.create_user(email=email, phone=phone, name=name, password=password)
+        user.otp = otp
+        user.save()
+
+        # Print or send OTP
+        send_otp_via_email_or_sms(contact, otp)
+
         return user
+
+class EmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class VerifyEmailOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
