@@ -29,6 +29,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(max_length=15, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
 
+    ROLE_CHOICES = (
+        ('customer', 'Customer'),
+        ('seller', 'Seller'),
+        ('admin', 'Admin'),
+    )
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='customer')
+
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'email'  # Keep this if using email login

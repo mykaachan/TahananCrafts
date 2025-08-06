@@ -1,15 +1,12 @@
-from rest_framework import serializers
-from users.models import CustomUser
-from users.auth.validators import validate_email_or_phone, validate_password_strength
-from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
-from users.utils import normalize_phone_number
-from users.utils import send_otp_via_email_or_sms
-import random
+# Import necessary modules and functions
+from rest_framework import serializers  # For creating API serializers
+from users.models import CustomUser  # Your custom user model
+from users.auth.validators import validate_email_or_phone, validate_password_strength  # Custom validation functions
+from users.utils import normalize_phone_number  # Utility functions
 
-
-
-class RegisterSerializer(serializers.Serializer):
+# Serializer for user registration requests
+# This serializer handles the input data for user registration, including contact information and password
+class RequestOTPSerializer(serializers.Serializer):
     contact = serializers.CharField(validators=[validate_email_or_phone])
     name = serializers.CharField()
     password = serializers.CharField(write_only=True, validators=[validate_password_strength])
@@ -25,35 +22,20 @@ class RegisterSerializer(serializers.Serializer):
             value = normalized_phone
         return value
 
-    def create(self, validated_data):
-        contact = validated_data.get("contact")
-        name = validated_data.get("name")
-        password = validated_data.get("password")
+class VerifyOTPSerializer(serializers.Serializer):
+    contact = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
 
-        # Distinguish between email and phone
-        try:
-            validate_email(contact)
-            email = contact
-            phone = None
-        except ValidationError:
-            email = None
-            phone = contact
-        
-        # for OTP sending in terminal
-        otp = str(random.randint(100000, 999999))
+class LoginRequestSerializer(serializers.Serializer):
+    contact = serializers.CharField()
+    password = serializers.CharField(write_only=True)
 
-        user = CustomUser.objects.create_user(email=email, phone=phone, name=name, password=password)
-        user.otp = otp
-        user.save()
+    def validate_contact(self, value):
+        if value == "admin":
+            return value
+        validate_email_or_phone(value)  # your existing validation
+        return value
 
-        # Print or send OTP
-        send_otp_via_email_or_sms(contact, otp)
-
-        return user
-
-class EmailSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-class VerifyEmailOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+class LoginVerifyOTPSerializer(serializers.Serializer):
+    contact = serializers.CharField()
     otp = serializers.CharField(max_length=6)

@@ -3,6 +3,8 @@ from django.core.exceptions import ValidationError
 import re
 
 def validate_email_or_phone(value):
+    if value == "admin":
+        return
     try:
         validate_email(value)
         return value  # Valid email
@@ -10,7 +12,7 @@ def validate_email_or_phone(value):
         # Philippine phone number format
         if re.match(r'^(09|\+639)\d{9}$', value):
             return value  # Valid phone
-        raise ValidationError("Enter a valid email or Philippine phone number.")
+        raise ValidationError("Enter a valid email or phone number.")
 
 def validate_password_strength(value):
     if len(value) < 8:

@@ -3,19 +3,21 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework import status
+from django.core.cache import cache
 
 # Import serializers to handle request validation
-from .serializers import RegisterSerializer, EmailSerializer, VerifyEmailOTPSerializer
+from .serializers import RequestOTPSerializer, VerifyOTPSerializer, LoginRequestSerializer, LoginVerifyOTPSerializer
 
 # Import utility functions and models
-from users.utils import generate_otp, send_otp_via_email
-from users.models import OTP, EmailOTP
+from users.utils import send_otp_email, send_otp_sms, normalize_phone_number
+from users.models import CustomUser
 
 import random
-from django.core.mail import send_mail
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 
 
-# ✅ Simple test to check if authentication-related endpoints are working
+# Simple test to check if authentication-related endpoints are working
 class TestAuthConnection(APIView):
     permission_classes = [AllowAny]
 
@@ -25,115 +27,141 @@ class TestAuthConnection(APIView):
     def post(self, request):
         return Response({"message": "POST auth works too!"})
 
-
-# Registers a user directly (you will move this later to the verify step)
-class RegisterView(APIView):
-    def post(self, request):
-        # Use the serializer to validate and save user data
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()  # Creates the user in the DB
-            return Response({"message": "User registered successfully"}, status=status.HTTP_201_CREATED)
-        # If validation fails, return errors
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 # Sends an OTP to a contact (email or phone)
-class RequestOTPView(APIView):
+class UserRegistrationView(APIView):
     def post(self, request):
-        contact = request.data.get('contact')  # Can be email or phone
+        serializer = RequestOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            contact = serializer.validated_data['contact']
+            name = serializer.validated_data['name']
+            password = serializer.validated_data['password']
 
-        if not contact:
-            return Response({'error': 'Contact is required'}, status=400)
+            # Determine contact type
+            try:
+                validate_email(contact)
+                contact_type = 'email'
+            except ValidationError:
+                contact_type = 'phone'
+                contact = normalize_phone_number(contact)
 
-        code = generate_otp()  # Create a random 6-digit OTP
+            otp = str(random.randint(100000, 999999))
 
-        # Save the OTP and contact in the database
-        OTP.objects.create(contact=contact, code=code)
+            # Store registration data and OTP in cache (expires in 5 min)
+            cache.set(f"reg_{contact}", {
+                "name": name,
+                "contact": contact,
+                "password": password,
+                "otp": otp,
+                "contact_type": contact_type
+            }, timeout=300)
 
-        if '@' in contact:
-            # If contact is email, send OTP via email
-            send_otp_via_email(contact, code)
-        else:
-            # If contact is a phone number, you can plug in SMS function here
-            # Example: send_sms(contact, code)
-            pass
+            # TODO: Send OTP via email or SMS here
+            if contact_type == 'email':
+                send_otp_email(contact, otp)
+            else:
+                send_otp_sms(contact, otp)
 
-        return Response({'message': 'OTP sent successfully.'})
+            return Response({"message": "OTP sent successfully. Enter OTP to verify email / contact number."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Verifies if OTP entered is correct (for either email or phone)
-class VerifyOTPView(APIView):
+class VerifyRegisterOTPView(APIView):
     def post(self, request):
-        contact = request.data.get('contact')  # Get the contact again
-        code = request.data.get('code')        # Get the entered OTP
-
-        try:
-            # Get the most recent OTP record for the contact
-            otp_record = OTP.objects.filter(contact=contact, code=code, is_verified=False).latest('created_at')
-        except OTP.DoesNotExist:
-            return Response({'error': 'Invalid code'}, status=400)
-
-        # Check if OTP is expired using the model's helper function
-        if otp_record.is_expired():
-            return Response({'error': 'Code expired'}, status=400)
-
-        # Mark the OTP as verified
-        otp_record.is_verified = True
-        otp_record.save()
-
-        return Response({'message': 'Verified. You can now register.'})
-
-
-# Sends OTP specifically to an email (used in email verification flow)
-class SendEmailOTP(APIView):
-    def post(self, request):
-        serializer = EmailSerializer(data=request.data)
-
+        serializer = VerifyOTPSerializer(data=request.data)
         if serializer.is_valid():
-            email = serializer.validated_data['email']
+            contact = serializer.validated_data['contact']
 
-            # Generate a random 6-digit OTP
-            otp = str(random.randint(100000, 999999))
+            # Normalize contact for cache lookup
+            if '@' in contact:
+                normalized_contact = contact
+            else:
+                normalized_contact = normalize_phone_number(contact)
 
-            # Save or update OTP in EmailOTP model
-            EmailOTP.objects.update_or_create(email=email, defaults={'otp': otp})
-
-            # Send the OTP via email using Django's built-in function
-            send_mail(
-                subject="Your TahananCrafts OTP Code",
-                message=f"Your OTP code is {otp}. It is valid for 5 minutes.",
-                from_email="yourtahanancrafts@gmail.com",
-                recipient_list=[email],
-            )
-
-            return Response({'message': 'OTP sent successfully.'}, status=status.HTTP_200_OK)
-
-        # Return validation errors if email is not valid
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# Verifies the email OTP (used before final registration)
-class VerifyEmailOTP(APIView):
-    def post(self, request):
-        serializer = VerifyEmailOTPSerializer(data=request.data)
-
-        if serializer.is_valid():
-            email = serializer.validated_data['email']
             otp = serializer.validated_data['otp']
 
-            try:
-                # Find the OTP record for the email
-                record = EmailOTP.objects.get(email=email)
+            reg_data = cache.get(f"reg_{normalized_contact}")
+            if not reg_data or reg_data['otp'] != otp:
+                return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
 
-                if record.otp == otp:
-                    # OTP matches, you may now register the user
-                    record.delete()  # Optional: delete OTP after verification
-                    return Response({'message': 'OTP verified. You may proceed to register.'}, status=status.HTTP_200_OK)
-                else:
-                    return Response({'error': 'Invalid OTP.'}, status=status.HTTP_400_BAD_REQUEST)
+            # Create user
+            if reg_data['contact_type'] == 'email':
+                user = CustomUser.objects.create_user(
+                    email=reg_data['contact'],
+                    name=reg_data['name'],
+                    password=reg_data['password']
+                )
+            else:
+                user = CustomUser.objects.create_user(
+                    phone=reg_data['contact'],
+                    name=reg_data['name'],
+                    password=reg_data['password']
+                )
 
-            except EmailOTP.DoesNotExist:
-                return Response({'error': 'OTP not found.'}, status=status.HTTP_404_NOT_FOUND)
-
+            cache.delete(f"reg_{normalized_contact}")
+            return Response({"message": "Successfully registered."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Request OTP for login
+class LoginRequestOTPView(APIView):
+    def post(self, request):
+        serializer = LoginRequestSerializer(data=request.data)
+        if serializer.is_valid():
+            contact = serializer.validated_data['contact']
+            password = serializer.validated_data['password']
+
+            # Special case for admin login
+            if contact == "admin":
+                user = CustomUser.objects.filter(role="admin", name="admin").first()
+                if user and user.check_password(password):
+                    return Response({"message": "Successfully logged in as admin."}, status=status.HTTP_200_OK)
+                else:
+                    return Response({"error": "Invalid admin credentials."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Normalize contact
+            if '@' in contact:
+                normalized_contact = contact
+                user = CustomUser.objects.filter(email=normalized_contact).first()
+            else:
+                normalized_contact = normalize_phone_number(contact)
+                user = CustomUser.objects.filter(phone=normalized_contact).first()
+
+            if not user or not user.check_password(password):
+                return Response({"error": "Invalid credentials."}, status=status.HTTP_400_BAD_REQUEST)
+
+            otp = str(random.randint(100000, 999999))
+            cache.set(f"login_{normalized_contact}", {"otp": otp, "user_id": user.id}, timeout=300)
+
+            # Send OTP
+            if '@' in contact:
+                send_otp_email(normalized_contact, otp)
+            else:
+                send_otp_sms(normalized_contact, otp)
+
+            return Response({"message": "OTP sent. Please verify to login."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# Verify OTP for login
+class LoginVerifyOTPView(APIView):
+    def post(self, request):
+        serializer = LoginVerifyOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            contact = serializer.validated_data['contact']
+            otp = serializer.validated_data['otp']
+
+            # Normalize contact
+            if '@' in contact:
+                normalized_contact = contact
+            else:
+                normalized_contact = normalize_phone_number(contact)
+
+            login_data = cache.get(f"login_{normalized_contact}")
+            if not login_data or login_data['otp'] != otp:
+                return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
+            user = CustomUser.objects.get(id=login_data['user_id'])
+            cache.delete(f"login_{normalized_contact}")
+            return Response({"message": f"Successfully logged in as {user.role}."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
