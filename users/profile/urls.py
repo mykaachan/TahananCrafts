@@ -4,5 +4,5 @@ from django.urls import path
 from .views import TestAuthConnection
 
 urlpatterns = [
-    path('test/', TestAuthConnection.as_view(), name='auth-test'),
+    path('test_profile/', TestAuthConnection.as_view(), name='auth-test'),
 ]

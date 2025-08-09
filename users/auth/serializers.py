@@ -2,7 +2,7 @@
 from rest_framework import serializers  # For creating API serializers
 from users.models import CustomUser  # Your custom user model
 from users.auth.validators import validate_email_or_phone, validate_password_strength  # Custom validation functions
-from users.utils import normalize_phone_number  # Utility functions
+from users.utils import normalize_phone_number, validate_and_return_new_password  # Utility functions
 
 # Serializer for user registration requests
 # This serializer handles the input data for user registration, including contact information and password
@@ -39,3 +39,50 @@ class LoginRequestSerializer(serializers.Serializer):
 class LoginVerifyOTPSerializer(serializers.Serializer):
     contact = serializers.CharField()
     otp = serializers.CharField(max_length=6)
+    
+#this if for forgot password
+class ForgotPasswordSerializer(serializers.Serializer):
+    contact = serializers.CharField(validators=[validate_email_or_phone])
+    
+    def validate_contact(self, value):
+        if '@' in value:
+            if not CustomUser.objects.filter(email=value).exists():
+                raise serializers.ValidationError("Email not registered.")
+        else:
+            normalized_phone = normalize_phone_number(value)
+            if not CustomUser.objects.filter(phone=normalized_phone).exists():
+                raise serializers.ValidationError("Phone not registered.")
+            value = normalized_phone
+        return value
+    
+class ForgotPasswordOtpVerifySerializer(serializers.Serializer):
+    contact = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
+    newpass1 = serializers.CharField(write_only = True)
+    newpass2 = serializers.CharField(write_only=True)
+
+    def validate_contact(self, value):
+        if '@' in value:
+            if not CustomUser.objects.filter(email=value).exists():
+                raise serializers.ValidationError("Email not registered.")
+        else:
+            normalized_phone = normalize_phone_number(value)
+            if not CustomUser.objects.filter(phone=normalized_phone).exists():
+                raise serializers.ValidationError("Phone not registered.")
+            value = normalized_phone
+        return value
+    
+    def validate(self, attrs):
+        contact = attrs.get('contact')
+        otp = attrs.get('otp')
+        newpass1 = attrs.get('newpass1')
+        newpass2 = attrs.get('newpass2')
+
+        try:
+            password = validate_and_return_new_password(newpass1, newpass2)
+        except ValueError as e:
+            raise serializers.ValidationError({"password": str(e)})
+
+        return attrs
+
+

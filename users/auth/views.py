@@ -6,10 +6,10 @@ from rest_framework import status
 from django.core.cache import cache
 
 # Import serializers to handle request validation
-from .serializers import RequestOTPSerializer, VerifyOTPSerializer, LoginRequestSerializer, LoginVerifyOTPSerializer
+from .serializers import RequestOTPSerializer, VerifyOTPSerializer, LoginRequestSerializer, LoginVerifyOTPSerializer, ForgotPasswordSerializer, ForgotPasswordOtpVerifySerializer
 
 # Import utility functions and models
-from users.utils import send_otp_email, send_otp_sms, normalize_phone_number
+from users.utils import send_otp_email, send_otp_sms, normalize_phone_number, validate_and_return_new_password
 from users.models import CustomUser
 
 import random
@@ -165,3 +165,51 @@ class LoginVerifyOTPView(APIView):
             return Response({"message": f"Successfully logged in as {user.role}."}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+#this is for forgot password
+class ForgotPasswordView(APIView):
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            contact = serializer.validated_data['contact']
+            # Generate OTP and send it
+            otp = str(random.randint(100000, 999999))
+            cache.set(f"forgot_{contact}", {"otp": otp}, timeout=300)
+            if '@' in contact:
+                send_otp_email(contact, otp)
+            else:
+                send_otp_sms(contact, otp)
+            return Response({"message": "OTP sent. Please verify to reset password."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ForgotPasswordOtpVerify(APIView):
+    def post(self, request):
+        serializer = ForgotPasswordOtpVerifySerializer(data=request.data)
+        if serializer.is_valid():
+            contact = serializer.validated_data['contact']
+            otp = serializer.validated_data['otp']
+            new_password = serializer.validated_data['newpass1']
+            repeat_password = serializer.validated_data['newpass2']
+
+            cached = cache.get(f"forgot_{contact}")
+            if not cached or cached['otp'] != otp:
+                return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                valid_password = validate_and_return_new_password(new_password, repeat_password)
+            except ValueError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Find user by contact (email or phone)
+            if '@' in contact:
+                user = CustomUser.objects.filter(email=contact).first()
+            else:
+                user = CustomUser.objects.filter(phone=normalize_phone_number(contact)).first()
+
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            user.set_password(valid_password)
+            user.save()
+            cache.delete(f"forgot_{contact}")
+            return Response({"message": "Password reset successful."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

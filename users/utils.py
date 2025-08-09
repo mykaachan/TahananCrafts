@@ -1,5 +1,7 @@
 import re
 from django.core.mail import send_mail
+from django.forms import ValidationError
+from users.auth.validators import validate_password_strength
 
 #Converting 09 to +639
 def normalize_phone_number(phone):
@@ -33,3 +35,14 @@ def send_otp_email(email,code):
 def send_otp_sms(contact, otp):
     # Simulate sending by printing
     print(f"OTP sent to {contact}: {otp}")
+
+#enter new password and repeat password with validation
+def validate_and_return_new_password(newpass1, newpass2):
+    """
+    Validates password strength and checks if both passwords match.
+    Returns the new password if valid, raises ValueError otherwise.
+    """
+    validate_password_strength(newpass1)
+    if newpass1 != newpass2:
+        raise ValueError("Passwords do not match.")
+    return newpass1

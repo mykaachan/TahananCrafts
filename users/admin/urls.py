@@ -1,8 +1,8 @@
-# users/auth/urls.py
+# users/admin/urls.py
 
 from django.urls import path
 from .views import TestAuthConnection
 
 urlpatterns = [
-    path('test/', TestAuthConnection.as_view(), name='auth-test'),
+    path('test_admin/', TestAuthConnection.as_view(), name='auth-test'),
 ]
