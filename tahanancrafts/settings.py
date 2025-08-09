@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -42,7 +43,12 @@ INSTALLED_APPS = [
     'rest_framework',  # Django REST Framework for API
     'django_extensions',
     'corsheaders',
-
+    'allauth',  # Django Allauth for authentication
+    'allauth.account',  # Django Allauth account management
+    'allauth.socialaccount',  # Django Allauth social account management
+    'allauth.socialaccount.providers.google',  # Google provider for Allauth
+    'allauth.socialaccount.providers.facebook',  # Facebook provider for Allauth
+    'rest_framework.authtoken',
 ]
 
 MIDDLEWARE = [
@@ -54,6 +60,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True  # Or restrict to your React domain
@@ -149,3 +156,22 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'tahanancrafts.shop@gmail.com'  # create this Gmail account
 EMAIL_HOST_PASSWORD = 'xakqeqpetfuqsdws'          # use App Password (not your Gmail password)
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id':'',
+            'secret':'',
+        },
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        },
+    },
+    'facebook': {
+        'METHOD': 'js_sdk',
+        'SCOPE': [
+            'public_profile',
+            'email',
+        ],
+    },
+}

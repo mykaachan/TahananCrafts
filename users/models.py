@@ -25,6 +25,7 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(email=email, phone=phone, password=password, **extra_fields)
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
+    username = models.CharField(max_length=150, unique=True, null=True, blank=True)  # Optional field
     email = models.EmailField(unique=True, null=True, blank=True)
     phone = models.CharField(max_length=15, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
@@ -38,8 +39,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     objects = CustomUserManager()
 
-    USERNAME_FIELD = 'email'  # Keep this if using email login
-    REQUIRED_FIELDS = ['name']  # Add 'phone' here if you want it required
+    USERNAME_FIELD = 'email'  # Keep as 'email' if you want email login
+    REQUIRED_FIELDS = ['']      # Leave empty or add only fields you want required for createsuperuser
 
     def __str__(self):
         return self.email or self.phone
